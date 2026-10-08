@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Substring Finder · DFA Simulator</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2d;--line:#26324b;--muted:#91a0ba;--text:#eff4ff;--accent:#8b9cff;--green:#43d9a3;--red:#ff7892}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#1e2b52 0,transparent 44%),var(--bg);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,Segoe UI,sans-serif}.wrap{max-width:1100px;margin:auto;padding:42px 22px 70px}header{margin-bottom:28px}.eyebrow{color:var(--green);font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}h1{font-size:clamp(30px,5vw,48px);letter-spacing:-.04em;line-height:1.1;margin:10px 0}header p,.hint{color:var(--muted);margin:0}.layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);gap:18px}.card{background:linear-gradient(160deg,#151f35,#101729);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 15px 45px #0002}.card h2{font-size:16px;margin:0 0 16px}.field{margin:0 0 16px}label{display:block;font-size:13px;color:#c4cee0;font-weight:650;margin-bottom:7px}input,textarea{width:100%;border:1px solid #34415d;border-radius:10px;background:#0b1222;color:var(--text);padding:12px 13px;font:inherit;outline:none}input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #8b9cff20}textarea{resize:vertical;min-height:128px;font-family:ui-monospace,Consolas,monospace}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}button{border:0;border-radius:10px;background:var(--accent);color:#10152a;font-weight:800;padding:11px 17px;font:inherit;cursor:pointer}button:hover{filter:brightness(1.1)}button:disabled{opacity:.42;cursor:not-allowed;filter:none}button.secondary{background:#24314c;color:var(--text)}.hint{font-size:12px;margin-top:8px}.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}.stat{background:#0b1222;border:1px solid var(--line);padding:16px;border-radius:13px}.stat span{display:block;color:var(--muted);font-size:12px}.stat strong{font-size:30px;line-height:1.2}.matches{word-break:break-word;color:var(--green);font-family:ui-monospace,Consolas,monospace}.error{color:var(--red);min-height:22px;margin-top:10px}.scroll{overflow:auto;max-height:310px;border:1px solid var(--line);border-radius:10px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 11px;border-bottom:1px solid #202b40;white-space:nowrap}th{position:sticky;top:0;background:#18233a;color:#b7c4db}td code{color:#c8d2ff}.hit{color:var(--green);font-weight:700}.active-row{background:#24364b}.future-row{opacity:.5}.subhead{color:var(--muted);font-size:12px;margin:18px 0 8px}.empty{color:var(--muted);font-size:13px;padding:12px}.step-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-5px 0 12px}.step-controls button{padding:7px 11px;font-size:13px}.step-status{color:var(--muted);font-size:13px;margin-left:auto}@media(max-width:760px){.layout{grid-template-columns:1fr}.wrap{padding:28px 15px 50px}.step-status{width:100%;margin-left:0}}
+</style>
+</head>
+<body><main class="wrap">
+<header><div class="eyebrow">Finite automata · streaming string match</div><h1>Substring Finder</h1><p>Pattern ke har occurrence ko count karein — overlapping matches bhi. DFA ki state-by-state run dekhein.</p></header>
+<div class="layout">
+<section class="card"><h2>Simulation input</h2>
+<div class="field"><label for="pattern">Numeric pattern</label><input id="pattern" value="1011" maxlength="100" inputmode="numeric" autocomplete="off"></div>
+<div class="field"><label for="stream">Text stream</label><textarea id="stream" spellcheck="false">1011011</textarea><p class="hint">Pattern aur stream mein digits ya text characters ho sakte hain.</p></div>
+<div class="actions"><button id="run">Run DFA simulation</button><button id="example" class="secondary">Load example</button><button id="reset" class="secondary">Reset / clear</button></div><div class="error" id="error" role="alert"></div></section>
+<section class="card"><h2>Result</h2><div class="stats"><div class="stat"><span>Total occurrences</span><strong id="count">—</strong></div><div class="stat"><span>Final DFA state</span><strong id="state">—</strong></div></div><div class="subhead">Match start positions (1-based)</div><div class="matches" id="matches">Run simulation to see matching positions.</div>
+<div class="subhead">DFA transitions (state × pattern alphabet)</div><div class="scroll" id="transitionBox"><div class="empty">Transition table will appear here.</div></div></section>
+<section class="card" style="grid-column:1/-1"><h2>Stream trace</h2><div class="step-controls"><button id="restart" class="secondary" disabled>⏮ Start</button><button id="previous" class="secondary" disabled>← Previous</button><button id="play" disabled>▶ Play</button><button id="next" class="secondary" disabled>Next →</button><span class="step-status" id="stepStatus">Run simulation to enable step controls.</span></div><div class="scroll" id="traceBox"><div class="empty">Har character par state change yahan dikhega.</div></div></section>
+</div></main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+let result = null, step = 0, timer = null;
+
+function sameSymbols(left, right, length) {
+  for (let i = 0; i < length; i++) if (left[left.length - length + i] !== right[i]) return false;
+  return true;
+}
+function simulate(pattern, text) {
+  if (!pattern) throw new Error('Pattern khali nahi ho sakta.');
+  const needle = Array.from(pattern);
+  const stream = Array.from(text);
+  const alphabet = [...new Set(needle)].sort();
+  const m = needle.length;
+  const transitions = new Map();
+  for (let q = 0; q < m; q++) {
+    for (const char of alphabet) {
+      const candidate = needle.slice(0, q).concat(char);
+      let k = Math.min(m, candidate.length);
+      while (k && !sameSymbols(candidate, needle, k)) k--;
+      transitions.set(`${q}\u0000${char}`, k);
+    }
+  }
+  let overlap = m - 1;
+  while (overlap && !sameSymbols(needle, needle.slice(0, overlap), overlap)) overlap--;
+  let state = 0, count = 0;
+  const matches = [], trace = [];
+  for (let index = 0; index < stream.length; index++) {
+    const char = stream[index], old = state;
+    state = alphabet.includes(char) ? transitions.get(`${old}\u0000${char}`) : 0;
+    const found = state === m;
+    if (found) {
+      count++;
+      matches.push(index - m + 1);
+      state = overlap;
+    }
+    trace.push({index, char, from: old, to: state, match: found, count});
+  }
+  const rows = [];
+  for (let q = 0; q < m; q++) for (const char of alphabet) rows.push({state: q, char, next: transitions.get(`${q}\u0000${char}`)});
+  return {pattern, text, count, matches, final_state: state, states: Array.from({length: m}, (_, i) => i), alphabet, transitions: rows, trace};
+}
+function stopPlayback() {
+  if (timer) clearInterval(timer);
+  timer = null;
+  $('play').textContent = '▶ Play';
+}
+function setStepControls(enabled) {
+  for (const id of ['restart', 'previous', 'play', 'next']) $(id).disabled = !enabled;
+}
+function renderStep() {
+  if (!result) return;
+  const total = result.trace.length;
+  const state = step === 0 ? 0 : result.trace[step - 1].to;
+  const count = step === 0 ? 0 : result.trace[step - 1].count;
+  $('stepStatus').textContent = `Step ${step} / ${total} · state q${state} · matches so far ${count}`;
+  $('traceBox').querySelectorAll('tbody tr').forEach((row, index) => {
+    row.classList.toggle('active-row', index === step - 1);
+    row.classList.toggle('future-row', index >= step);
+  });
+  $('previous').disabled = step === 0;
+  $('restart').disabled = step === 0;
+  $('next').disabled = step >= total;
+  $('play').disabled = total === 0;
+}
+function moveStep(delta) {
+  if (!result) return;
+  step = Math.max(0, Math.min(result.trace.length, step + delta));
+  renderStep();
+}
+function clearResult() {
+  stopPlayback();
+  result = null;
+  step = 0;
+  $('count').textContent = '—';
+  $('state').textContent = '—';
+  $('matches').textContent = 'Run simulation to see matching positions.';
+  $('transitionBox').innerHTML = '<div class="empty">Transition table will appear here.</div>';
+  $('traceBox').innerHTML = '<div class="empty">Har character par state change yahan dikhega.</div>';
+  $('stepStatus').textContent = 'Run simulation to enable step controls.';
+  setStepControls(false);
+}
+function run() {
+  stopPlayback();
+  result = null;
+  step = 0;
+  setStepControls(false);
+  $('transitionBox').innerHTML = '<div class="empty">Building transitions…</div>';
+  $('traceBox').innerHTML = '<div class="empty">Tracing stream…</div>';
+  $('stepStatus').textContent = 'Simulation running…';
+  const pattern = $('pattern').value;
+  const text = $('stream').value;
+  $('error').textContent = '';
+  $('count').textContent = '…';
+  $('run').disabled = true;
+  try {
+    const data = simulate(pattern, text);
+    result = data;
+    $('count').textContent = data.count;
+    $('state').textContent = 'q' + data.final_state;
+    $('matches').textContent = data.matches.length ? data.matches.map(index => index + 1).join(', ') : 'No matches';
+    $('transitionBox').innerHTML = data.transitions.length
+      ? `<table><thead><tr><th>Current state</th><th>Input</th><th>Next state</th></tr></thead><tbody>${data.transitions.map(item => `<tr><td>q${item.state}</td><td><code>${esc(item.char)}</code></td><td>q${item.next}${item.next === pattern.length ? ' (accept)' : ''}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">No transitions</div>';
+    $('traceBox').innerHTML = data.trace.length
+      ? `<table><thead><tr><th>Position</th><th>Input</th><th>From</th><th>To</th><th>Event</th><th>Count</th></tr></thead><tbody>${data.trace.map(item => `<tr><td>${item.index + 1}</td><td><code>${esc(item.char)}</code></td><td>q${item.from}</td><td>q${item.to}</td><td class="${item.match ? 'hit' : ''}">${item.match ? 'Match!' : '—'}</td><td>${item.count}</td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">Stream khali hai.</div>';
+    setStepControls(data.trace.length > 0);
+    renderStep();
+  } catch (error) {
+    $('count').textContent = '—';
+    $('state').textContent = '—';
+    $('transitionBox').innerHTML = '<div class="empty">No transitions.</div>';
+    $('traceBox').innerHTML = '<div class="empty">No trace to display.</div>';
+    $('error').textContent = error.message;
+    $('stepStatus').textContent = 'Simulation run nahi hui.';
+  } finally {
+    $('run').disabled = false;
+  }
+}
+function reset() {
+  $('pattern').value = '';
+  $('stream').value = '';
+  $('error').textContent = '';
+  clearResult();
+}
+$('run').addEventListener('click', run);
+$('example').addEventListener('click', () => {
+  $('pattern').value = '1011';
+  $('stream').value = '1011011';
+  run();
+});
+$('reset').addEventListener('click', reset);
+$('restart').addEventListener('click', () => moveStep(-step));
+$('previous').addEventListener('click', () => moveStep(-1));
+$('next').addEventListener('click', () => moveStep(1));
+$('play').addEventListener('click', () => {
+  if (!result || !result.trace.length) return;
+  if (timer) { stopPlayback(); renderStep(); return; }
+  if (step >= result.trace.length) step = 0;
+  $('play').textContent = '⏸ Pause';
+  timer = setInterval(() => {
+    if (step >= result.trace.length) { stopPlayback(); renderStep(); return; }
+    step++;
+    renderStep();
+    if (step >= result.trace.length) stopPlayback();
+  }, 500);
+  renderStep();
+});
+$('pattern').addEventListener('keydown', event => { if (event.key === 'Enter') run(); });
+run();
+</script></body></html>
+
