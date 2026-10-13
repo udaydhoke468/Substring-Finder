@@ -1,0 +1,65 @@
+name: Build Windows Desktop App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "SubstringFinderApp.zip"
+      - ".github/workflows/build-windows-exe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Extract Windows app source
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          source_path = Path("SubstringFinderApp/windows/substring_finder.py")
+          source_path.parent.mkdir(parents=True, exist_ok=True)
+          found = False
+
+          with ZipFile("SubstringFinderApp.zip") as archive:
+              for info in archive.infolist():
+                  normalized = info.filename.replace(chr(92), "/")
+                  if normalized == "SubstringFinderApp/windows/substring_finder.py":
+                      source_path.write_bytes(archive.read(info))
+                      found = True
+                      break
+
+          if not found:
+              raise SystemExit("Windows desktop app source was not found in SubstringFinderApp.zip")
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package desktop executable
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pyinstaller
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name SubstringFinder SubstringFinderApp/windows/substring_finder.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v7
+        with:
+          name: substring-finder-windows-exe
+          path: dist/SubstringFinder.exe
+          if-no-files-found: error
+          retention-days: 14
