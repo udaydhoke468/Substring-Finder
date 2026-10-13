@@ -40,7 +40,7 @@ jobs:
 
           with ZipFile("SubstringFinderApp.zip") as archive:
               for info in archive.infolist():
-                  name = info.filename.replace("\\\\", "/")
+                  name = info.filename.replace(chr(92), "/")
                   parts = PurePosixPath(name).parts
                   if not parts or parts[0] != "SubstringFinderApp" or ".." in parts:
                       raise SystemExit(f"Unexpected archive path: {info.filename}")
