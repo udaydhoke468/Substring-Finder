@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "android/**"
+      - "SubstringFinderApp.zip"
       - ".github/workflows/build-android-apk.yml"
   workflow_dispatch:
 
@@ -30,6 +30,29 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
+      - name: Extract Android project
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+          import shutil
+
+          with ZipFile("SubstringFinderApp.zip") as archive:
+              for info in archive.infolist():
+                  name = info.filename.replace("\\\\", "/")
+                  parts = PurePosixPath(name).parts
+                  if not parts or parts[0] != "SubstringFinderApp" or ".." in parts:
+                      raise SystemExit(f"Unexpected archive path: {info.filename}")
+                  target = Path(*parts)
+                  if info.is_dir():
+                      target.mkdir(parents=True, exist_ok=True)
+                  else:
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with archive.open(info) as source, target.open("wb") as output:
+                          shutil.copyfileobj(source, output)
+          PY
+
       - name: Install Android SDK packages
         shell: bash
         run: |
@@ -37,12 +60,12 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Build debug APK
-        run: gradle --no-daemon -p android assembleDebug
+        run: gradle --no-daemon -p SubstringFinderApp/android assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
           name: substring-finder-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: SubstringFinderApp/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
